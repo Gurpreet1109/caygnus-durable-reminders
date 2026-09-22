@@ -1,10 +1,38 @@
 const { query } = require("../db/database");
 
 async function deliverReminder(reminder) {
+  const deliveryKey = reminder.id;
+
+  const result = await query(
+    `
+    INSERT INTO reminder_deliveries (
+      reminder_id,
+      delivery_key
+    )
+    VALUES ($1, $2)
+    ON CONFLICT (delivery_key)
+    DO NOTHING
+    RETURNING *
+    `,
+    [reminder.id, deliveryKey],
+  );
+
+  if (result.rows.length === 0) {
+    console.log(`[DELIVERY] Duplicate suppressed for reminder ${reminder.id}`);
+
+    return {
+      success: true,
+      duplicate: true,
+      deliveryKey,
+    };
+  }
+
   console.log(`[DELIVERY] ${reminder.user_id}: ${reminder.message}`);
 
   return {
     success: true,
+    duplicate: false,
+    deliveryKey,
   };
 }
 
@@ -16,19 +44,21 @@ async function recordAttempt(
 ) {
   await query(
     `
-    INSERT INTO reminder_attempts (
-      reminder_id,
-      attempt_number,
-      status,
-      error_message
-    )
-    VALUES ($1, $2, $3, $4)
+INSERT INTO reminder_attempts (
+    reminder_id,
+    attempt_number,
+    status,
+    error_message
+)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (reminder_id, attempt_number)
+DO NOTHING
     `,
     [reminderId, attemptNumber, status, errorMessage],
   );
 }
 
-async function markDelivered(reminderId) {
+async function markDelivered(reminderId, expectedVersion) {
   const result = await query(
     `
     UPDATE reminders
@@ -39,15 +69,22 @@ async function markDelivered(reminderId) {
       next_attempt_at = NULL
     WHERE id = $1
       AND status = 'processing'
+      AND version = $2
     RETURNING *
     `,
-    [reminderId],
+    [reminderId, expectedVersion],
   );
 
   return result.rows[0] || null;
 }
 
-async function markRetry(reminderId, retryCount, errorMessage, nextAttemptAt) {
+async function markRetry(
+  reminderId,
+  expectedVersion,
+  retryCount,
+  errorMessage,
+  nextAttemptAt,
+) {
   const result = await query(
     `
     UPDATE reminders
@@ -59,15 +96,21 @@ async function markRetry(reminderId, retryCount, errorMessage, nextAttemptAt) {
       updated_at = NOW()
     WHERE id = $4
       AND status = 'processing'
+      AND version = $5
     RETURNING *
     `,
-    [retryCount, errorMessage, nextAttemptAt, reminderId],
+    [retryCount, errorMessage, nextAttemptAt, reminderId, expectedVersion],
   );
 
   return result.rows[0] || null;
 }
 
-async function markFailed(reminderId, retryCount, errorMessage) {
+async function markFailed(
+  reminderId,
+  expectedVersion,
+  retryCount,
+  errorMessage,
+) {
   const result = await query(
     `
     UPDATE reminders
@@ -78,9 +121,10 @@ async function markFailed(reminderId, retryCount, errorMessage) {
       updated_at = NOW()
     WHERE id = $3
       AND status = 'processing'
+      AND version = $4
     RETURNING *
     `,
-    [retryCount, errorMessage, reminderId],
+    [retryCount, errorMessage, reminderId, expectedVersion],
   );
 
   return result.rows[0] || null;

@@ -39,7 +39,10 @@ describe("Reminder retry processor", () => {
       id: "test-reminder",
       retry_count: 0,
       max_retries: 3,
+      version: 1,
     };
+
+    const expectedNextAttempt = new Date("2026-09-21T10:00:01.000Z");
 
     await processReminder(reminder, clock);
 
@@ -55,8 +58,9 @@ describe("Reminder retry processor", () => {
     expect(markRetry).toHaveBeenCalledWith(
       "test-reminder",
       1,
+      1,
       "Delivery failed",
-      new Date("2026-09-21T10:00:01.000Z"),
+      expectedNextAttempt,
     );
   });
 
@@ -75,6 +79,7 @@ describe("Reminder retry processor", () => {
       id: "test-reminder",
       retry_count: 2,
       max_retries: 3,
+      version: 1,
     };
 
     await processReminder(reminder, clock);
@@ -88,8 +93,98 @@ describe("Reminder retry processor", () => {
 
     expect(markFailed).toHaveBeenCalledWith(
       "test-reminder",
+      1,
       3,
       "Delivery failed",
     );
   });
+
+  test("permanent failure does not retry", async () => {
+    deliverReminder.mockRejectedValue(
+      Object.assign(new Error("Invalid destination"), { retryable: false }),
+    );
+
+    markFailed.mockResolvedValue({
+      id: "test-reminder",
+      status: "failed",
+      retry_count: 0,
+    });
+
+    const clock = createClock(() => new Date("2026-09-21T10:00:00Z"));
+
+    const reminder = {
+      id: "test-reminder",
+      retry_count: 0,
+      max_retries: 3,
+      version: 1,
+    };
+
+    await processReminder(reminder, clock);
+
+    expect(recordAttempt).toHaveBeenCalledWith(
+      "test-reminder",
+      1,
+      "failed",
+      "Invalid destination",
+    );
+
+    expect(markFailed).toHaveBeenCalledWith(
+      "test-reminder",
+      1,
+      0,
+      "Invalid destination",
+    );
+
+    expect(markRetry).not.toHaveBeenCalled();
+  });
+
+test("temporary failure retries", async () => {
+  deliverReminder.mockRejectedValue(
+    Object.assign(
+      new Error("Provider temporarily unavailable"),
+      { retryable: true }
+    )
+  );
+
+  markRetry.mockResolvedValue({
+    id: "test-reminder",
+    status: "scheduled",
+    retry_count: 1,
+  });
+
+  const fixedDate = new Date("2026-09-21T10:00:00Z");
+
+  const clock = createClock(() => fixedDate);
+
+  const reminder = {
+    id: "test-reminder",
+    retry_count: 0,
+    max_retries: 3,
+    version: 1,
+  };
+
+  const expectedNextAttempt = new Date(
+    "2026-09-21T10:00:01.000Z"
+  );
+
+  await processReminder(reminder, clock);
+
+  expect(recordAttempt).toHaveBeenCalledWith(
+    "test-reminder",
+    1,
+    "failed",
+    "Provider temporarily unavailable",
+  );
+
+  expect(markRetry).toHaveBeenCalledWith(
+    "test-reminder",
+    1,
+    1,
+    "Provider temporarily unavailable",
+    expectedNextAttempt,
+  );
+
+  expect(markFailed).not.toHaveBeenCalled();
+});
+
 });

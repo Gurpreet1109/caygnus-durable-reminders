@@ -7,7 +7,6 @@ const {
 } = require("./deliveryService");
 
 const { calculateRetryDelay, shouldRetry } = require("../utils/retry");
-
 const { systemClock } = require("../utils/clock");
 
 async function processReminder(
@@ -17,18 +16,37 @@ async function processReminder(
 ) {
   const attemptNumber = reminder.retry_count + 1;
 
-  // Only delivery failures should enter the retry flow.
-  let deliveryResult;
-
   try {
-    deliveryResult = await deliveryFunction(reminder);
+    const deliveryResult = await deliveryFunction(reminder);
 
     if (!deliveryResult.success) {
-      throw new Error("Delivery failed");
+      const error = new Error(deliveryResult.errorMessage || "Delivery failed");
+
+      error.retryable =
+        deliveryResult.retryable !== undefined
+          ? deliveryResult.retryable
+          : true;
+
+      throw error;
     }
+
+    await recordAttempt(reminder.id, attemptNumber, "success");
+
+    return await markDelivered(reminder.id, reminder.version);
   } catch (error) {
     await recordAttempt(reminder.id, attemptNumber, "failed", error.message);
 
+    // Permanent failure: do not retry.
+    if (error.retryable === false) {
+      return await markFailed(
+        reminder.id,
+        reminder.version,
+        reminder.retry_count,
+        error.message,
+      );
+    }
+
+    // Temporary/retryable failure.
     const nextRetryCount = reminder.retry_count + 1;
 
     if (shouldRetry(nextRetryCount, reminder.max_retries)) {
@@ -38,23 +56,21 @@ async function processReminder(
 
       return await markRetry(
         reminder.id,
+        reminder.version,
         nextRetryCount,
         error.message,
         nextAttemptAt,
       );
     }
 
-    return await markFailed(reminder.id, nextRetryCount, error.message);
+    // Retry limit exhausted.
+    return await markFailed(
+      reminder.id,
+      reminder.version,
+      nextRetryCount,
+      error.message,
+    );
   }
-
-  // Delivery succeeded.
-  // Database state updates are deliberately outside
-  // the delivery failure catch block.
-  await recordAttempt(reminder.id, attemptNumber, "success");
-
-  return await markDelivered(reminder.id);
 }
 
-module.exports = {
-  processReminder,
-};
+module.exports = { processReminder };

@@ -1,15 +1,24 @@
 const crypto = require("crypto");
 
-const { query, closeDatabase } = require("../src/db/database");
-const { deliverReminder } = require("../src/services/deliveryService");
+const {
+  query,
+  closeDatabase,
+} = require("../src/db/database");
 
-describe("Delivery-boundary idempotency", () => {
+const {
+  processReminder,
+} = require("../src/services/reminderProcessor");
+
+describe("Full delivery-boundary duplicate execution", () => {
   const reminderId = crypto.randomUUID();
 
   const reminder = {
     id: reminderId,
     user_id: "test-user",
-    message: "Duplicate execution test",
+    message: "Full duplicate execution test",
+    retry_count: 0,
+    max_retries: 3,
+    version: 1,
   };
 
   beforeAll(async () => {
@@ -58,18 +67,12 @@ describe("Delivery-boundary idempotency", () => {
     await closeDatabase();
   });
 
-  test("duplicate execution produces only one logical delivery", async () => {
-    const firstDelivery = await deliverReminder(reminder);
+  test("duplicate worker execution creates only one logical notification", async () => {
+    const firstResult = await processReminder(reminder);
 
-    const secondDelivery = await deliverReminder(reminder);
+    const secondResult = await processReminder(reminder);
 
-    expect(firstDelivery.success).toBe(true);
-    expect(firstDelivery.duplicate).toBe(false);
-
-    expect(secondDelivery.success).toBe(true);
-    expect(secondDelivery.duplicate).toBe(true);
-
-    const result = await query(
+    const deliveryResult = await query(
       `
       SELECT COUNT(*)::int AS count
       FROM reminder_deliveries
@@ -78,6 +81,19 @@ describe("Delivery-boundary idempotency", () => {
       [reminderId]
     );
 
-    expect(result.rows[0].count).toBe(1);
+    const attemptResult = await query(
+      `
+      SELECT COUNT(*)::int AS count
+      FROM reminder_attempts
+      WHERE reminder_id = $1
+      `,
+      [reminderId]
+    );
+
+    expect(firstResult).not.toBeNull();
+
+    expect(deliveryResult.rows[0].count).toBe(1);
+
+    expect(attemptResult.rows[0].count).toBe(1);
   });
 });

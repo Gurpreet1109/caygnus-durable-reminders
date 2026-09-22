@@ -21,7 +21,11 @@ CREATE TABLE IF NOT EXISTS reminders (
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    next_attempt_at TIMESTAMPTZ,
+
+    version INTEGER NOT NULL DEFAULT 1
 );
 
 
@@ -50,6 +54,10 @@ ON reminders(status, scheduled_at);
 
 CREATE INDEX IF NOT EXISTS idx_reminders_user
 ON reminders(user_id);
+
+
+CREATE INDEX IF NOT EXISTS idx_reminders_next_attempt
+ON reminders(status, next_attempt_at);
 
 
 CREATE INDEX IF NOT EXISTS idx_attempts_reminder

@@ -43,11 +43,21 @@ async function createReminder(req, res) {
       });
     }
 
+    const hasExplicitOffset =
+      typeof scheduledAt === "string" &&
+      (scheduledAt.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(scheduledAt));
+
+    if (!hasExplicitOffset) {
+      return res.status(400).json({
+        message: "scheduledAt must include an explicit timezone offset or Z",
+      });
+    }
+
     const scheduledDate = new Date(scheduledAt);
 
     if (Number.isNaN(scheduledDate.getTime())) {
       return res.status(400).json({
-        error: "Invalid scheduledAt",
+        message: "Invalid scheduledAt",
       });
     }
 
@@ -122,14 +132,13 @@ async function getReminderById(req, res) {
 
 async function updateReminder(req, res) {
   try {
-    const { message, scheduledAt, timezone } = req.body;
+    const { id } = req.params;
 
-    if (
-      scheduledAt !== undefined &&
-      Number.isNaN(new Date(scheduledAt).getTime())
-    ) {
+    const { message, scheduledAt, timezone, version } = req.body;
+
+    if (!Number.isInteger(version) || version < 1) {
       return res.status(400).json({
-        error: "Invalid scheduledAt",
+        error: "version must be a positive integer",
       });
     }
 
@@ -139,27 +148,54 @@ async function updateReminder(req, res) {
       });
     }
 
-    const reminder = await reminderService.updateReminder(req.params.id, {
-      message,
-      scheduledAt:
-        scheduledAt !== undefined ? new Date(scheduledAt) : undefined,
-      timezone,
-    });
+    if (scheduledAt !== undefined) {
+      const parsedDate = new Date(scheduledAt);
+
+      if (Number.isNaN(parsedDate.getTime())) {
+        return res.status(400).json({
+          error: "Invalid scheduledAt",
+        });
+      }
+    }
+
+    const reminder = await reminderService.updateReminder(
+      id,
+      {
+        message,
+        scheduledAt,
+        timezone,
+      },
+      version,
+    );
 
     if (!reminder) {
-      return res.status(404).json({
-        error: "Reminder not found",
+      const existingReminder = await reminderService.getReminderById(id);
+
+      if (!existingReminder) {
+        return res.status(404).json({
+          error: "Reminder not found",
+        });
+      }
+
+      if (existingReminder.status !== "scheduled") {
+        return res.status(409).json({
+          error: "Reminder can only be edited while it is scheduled",
+          status: existingReminder.status,
+          version: existingReminder.version,
+        });
+      }
+
+      return res.status(409).json({
+        error: "Reminder version is stale",
+        currentVersion: existingReminder.version,
       });
     }
 
-    res.json({
-      message: "Reminder updated successfully",
-      reminder,
-    });
+    return res.json(reminder);
   } catch (error) {
     console.error("Update reminder error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       error: "Failed to update reminder",
     });
   }

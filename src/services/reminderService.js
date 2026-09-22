@@ -70,7 +70,11 @@ async function getReminderById(id) {
   return result.rows[0] || null;
 }
 
-async function updateReminder(id, { message, scheduledAt, timezone }) {
+async function updateReminder(
+  id,
+  { message, scheduledAt, timezone },
+  expectedVersion,
+) {
   const result = await query(
     `
     UPDATE reminders
@@ -78,11 +82,20 @@ async function updateReminder(id, { message, scheduledAt, timezone }) {
       message = COALESCE($1, message),
       scheduled_at = COALESCE($2, scheduled_at),
       timezone = COALESCE($3, timezone),
+      version = version + 1,
       updated_at = NOW()
     WHERE id = $4
+      AND status = 'scheduled'
+      AND version = $5
     RETURNING *
     `,
-    [message ?? null, scheduledAt ?? null, timezone ?? null, id],
+    [
+      message ?? null,
+      scheduledAt ?? null,
+      timezone ?? null,
+      id,
+      expectedVersion,
+    ],
   );
 
   return result.rows[0] || null;
