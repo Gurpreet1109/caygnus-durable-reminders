@@ -13,12 +13,12 @@
 ### Prerequisites
 
 - Node.js 18+
-- PostgreSQL 14+
+- PostgreSQL
 - npm
 
 ### Setup
 
-Clone the repository and install dependencies:
+Clone the repository:
 
 ```bash
 git clone https://github.com/Gurpreet1109/caygnus-durable-reminders.git
@@ -26,22 +26,22 @@ cd caygnus-durable-reminders
 npm install
 ```
 
-Create a `.env` file using `.env.example` and provide the PostgreSQL connection details.
+Create a `.env` file using `.env.example` and add the required PostgreSQL connection details.
 
-Required environment variables:
+Required environment variable:
 
 ```env
 DATABASE_URL=your_postgresql_connection_string
 PORT=3000
 ```
 
-Create the database/schema using the SQL provided in:
+Set up the database using the SQL file:
 
 ```text
 src/db/schema.sql
 ```
 
-Start the application:
+Start the project:
 
 ```bash
 npm start
@@ -55,54 +55,54 @@ npm run dev
 
 ### Successful scenario
 
-Create a scheduled reminder through the reminder API with a valid future time and IANA timezone.
+A reviewer can create a reminder with a future scheduled time and an IANA timezone.
 
-The scheduler/processor detects the reminder when it becomes due, claims it, delivers it through the local/test destination, and records the successful delivery and attempt history.
+When the reminder becomes due, the processor picks it up and sends it through the test delivery destination. The reminder is then marked as delivered and its delivery attempt is stored.
 
 ### Failure/recovery scenario
 
-The system can be tested with a temporary delivery failure. The reminder remains recoverable, a retry is scheduled, and the next processing attempt can successfully deliver it.
+A temporary delivery failure can be simulated during the benchmark. The reminder is not lost; it is scheduled for another attempt and can be delivered successfully later.
 
-Restart recovery is also supported: work that was left in processing state can be recovered and claimed again instead of being permanently lost.
+The system also handles restart recovery. If work was left in a processing state, it can be recovered and processed again after a restart.
 
 ## Run the tests
 
-Run the complete automated test suite:
+Run all automated tests:
 
 ```bash
 npm test
 ```
 
-Run the required problem-specific verification benchmark:
+Run the problem-specific benchmark:
 
 ```bash
 npm run benchmark
 ```
 
-The tests cover scheduling, editing, cancellation, race conditions, retries, recovery, timezone/DST handling, and delivery idempotency.
+The tests cover important cases such as editing, cancellation, retries, recovery, idempotency, race conditions, and timezone/DST handling.
 
 ## Acceptance scenarios and verification
 
-The submitted implementation covers the required durable reminder scenarios, including:
+I implemented the main scenarios required for the Durable Reminders problem:
 
-- Creating reminders with stable IDs.
-- Storing reminder content and scheduled time.
-- Storing and using IANA timezones.
-- Handling timezone/DST behavior deterministically.
-- Editing scheduled reminders safely.
-- Preventing stale scheduled work from delivering old reminder versions.
-- Cancelling scheduled reminders.
-- Handling edit/cancel races deterministically.
-- Claiming due reminders for processing.
-- Recovering abandoned processing work after restart.
-- Retrying temporary delivery failures.
-- Marking permanent delivery failures as terminal.
-- Maintaining ordered delivery attempt history.
-- Using stable delivery idempotency keys.
-- Suppressing duplicate logical deliveries.
-- Using an injectable clock for deterministic testing.
-- Using a local/test delivery destination instead of a paid external service.
-- Ensuring successful reminder occurrences result in one logical notification.
+- Create and store reminders with stable IDs.
+- Store the reminder content and scheduled time.
+- Support IANA timezones.
+- Handle timezone and DST behavior.
+- Edit scheduled reminders safely.
+- Prevent old reminder versions from being delivered.
+- Cancel scheduled reminders.
+- Handle edit/cancel race conditions deterministically.
+- Claim reminders when they become due.
+- Recover reminders that were left processing after a restart.
+- Retry temporary delivery failures.
+- Stop retrying permanent failures.
+- Store delivery attempt history.
+- Use stable idempotency keys.
+- Prevent duplicate logical deliveries.
+- Use an injectable clock for deterministic tests.
+- Use a local/test delivery destination.
+- Make sure successful reminder occurrences result in one logical notification.
 
 ### Verification benchmark
 
@@ -112,15 +112,13 @@ Run:
 npm run benchmark
 ```
 
-### Observed benchmark result
-
-The verification benchmark completed successfully:
+The observed result was:
 
 ```text
 20/20 checks passed
 ```
 
-Observed terminal state counts:
+The benchmark finished with these terminal states:
 
 ```text
 cancelled: 1
@@ -128,209 +126,197 @@ delivered: 18
 failed:    1
 ```
 
-Observed successful occurrences:
+There were:
 
 ```text
-18
+Successful occurrences: 18
+Logical deliveries: 18
 ```
 
-Observed logical deliveries:
-
-```text
-18
-```
-
-The benchmark also confirmed that duplicate execution was suppressed and all 20 benchmark reminders reached terminal states.
+The benchmark also confirmed that duplicate execution was suppressed and all 20 reminders reached a terminal state.
 
 ### Failure/recovery scenario
 
-The benchmark demonstrates a temporary delivery failure followed by retry and successful delivery. It also demonstrates abandoned processing work being recovered after restart and made available for processing again.
+The benchmark includes a temporary delivery failure followed by a retry and successful delivery.
 
-A reviewer can reproduce the verification by running:
+It also tests restart recovery by leaving work in a processing state, recovering it, and then allowing it to be processed again.
+
+A reviewer can reproduce these scenarios with:
 
 ```bash
 npm run benchmark
 ```
 
-The benchmark performs these scenarios deterministically without requiring an external paid delivery provider.
+No external paid delivery service is required.
 
 ## Architecture and data flow
 
-The application is a Node.js/Express backend backed by PostgreSQL.
+This is a Node.js/Express backend with PostgreSQL for persistent storage.
 
-Main flow:
+The basic flow is:
 
 ```text
 Client
-  |
-  v
+  ↓
 REST API
-  |
-  v
+  ↓
 Reminder Service
-  |
-  v
+  ↓
 PostgreSQL
-  |
-  v
+  ↓
 Reminder Processor
-  |
-  +--> Claim due reminder
-  |
-  v
+  ↓
 Delivery Service
-  |
-  +--> Success --> delivered
-  |
-  +--> Temporary failure --> retry
-  |
-  +--> Permanent failure --> failed
+  ↓
+Success / Retry / Failed
 ```
 
-Main components:
+The main parts of the application are:
 
-- **Routes:** expose reminder API endpoints.
-- **Controllers:** validate requests and return HTTP responses.
-- **Reminder Service:** handles reminder creation, editing, cancellation, versioning, and persistence logic.
-- **Reminder Processor:** finds due reminders, claims work, handles recovery, and coordinates delivery.
-- **Delivery Service:** performs the delivery operation and records delivery outcomes.
-- **Retry logic:** determines retry timing and bounded retry behavior.
-- **PostgreSQL:** provides durable reminder state, attempt history, versions, and idempotency records.
-- **Injectable clock/test destination:** makes scheduling and delivery behavior deterministic in tests.
+- **Routes:** Handle the reminder API endpoints.
+- **Controllers:** Receive requests, validate input, and send responses.
+- **Reminder Service:** Handles creating, editing, cancelling, and storing reminders.
+- **Reminder Processor:** Finds due reminders, claims them, handles recovery, and starts delivery.
+- **Delivery Service:** Handles delivery attempts and records their results.
+- **Retry logic:** Decides when a temporary failure should be tried again.
+- **PostgreSQL:** Stores reminder state, versions, attempts, and idempotency information.
+- **Injectable clock:** Makes time-dependent behavior easier to test reliably.
 
-The reminder lifecycle is primarily:
+A reminder normally moves through:
 
 ```text
 scheduled
-    |
-    v
+    ↓
 processing
    / | \
   /  |  \
- v   v   v
-delivered retry failed
-          |
-          v
-       processing
+ ↓   ↓   ↓
+delivered  retry  failed
+             ↓
+         processing
 ```
 
-Cancellation moves a reminder to `cancelled`, while edits create a new valid version so stale processing cannot deliver outdated content.
+If a reminder is cancelled, it moves to `cancelled`.
+
+For edits, the reminder version is checked so that already-claimed old work cannot deliver outdated content.
 
 ## Technology choices
 
-### Node.js + Express
+### Node.js and Express
 
-I chose Node.js and Express because the project is primarily a backend/API and Node.js provides a simple environment for implementing HTTP APIs, background processing, asynchronous delivery, and tests.
+I used Node.js and Express because the project is mainly a backend/API system and I am already comfortable building REST APIs with this stack.
 
-An alternative would have been another backend framework such as Java/Spring Boot. I chose Node.js because it allowed me to focus more directly on the reliability requirements without adding unnecessary framework complexity.
+Another option would have been something like Java/Spring Boot, but Node.js allowed me to keep the implementation smaller and focus on the reliability requirements.
 
 ### PostgreSQL
 
-PostgreSQL was chosen because the problem requires durable state, transactions, attempt history, versioning, and concurrency-safe processing.
+I chose PostgreSQL because the project needs durable state, transactions, attempt history, versioning, and safe concurrent processing.
 
-An in-memory database would be simpler but would not provide the durability and restart behavior required by the problem.
+A simpler in-memory solution would not be suitable because reminders need to survive application restarts.
 
-MongoDB was another possible option, but the relational state transitions and transactional requirements made PostgreSQL a good fit.
+I also considered MongoDB, but PostgreSQL felt like a better fit for the state transitions and transactional parts of this problem.
 
-### Jest + Supertest
+### Jest and Supertest
 
-Jest provides deterministic unit/integration testing, while Supertest allows HTTP API behavior to be tested without requiring a separate frontend.
+I used Jest for automated testing and Supertest for testing the API without needing a separate frontend.
 
-### Local/test delivery destination
+### Local/test delivery
 
-Instead of depending on an external paid notification service, the implementation uses an injectable/local delivery mechanism. This keeps the benchmark deterministic, reproducible, and free of external service credentials.
+I kept the delivery destination local and injectable instead of depending on an external notification service.
 
-The main trade-off is that the submitted delivery mechanism is designed for the challenge rather than being a complete production notification provider integration.
+This makes the benchmark easier to reproduce and avoids requiring API keys or paid services.
+
+The trade-off is that the delivery layer is mainly designed for this challenge rather than being a complete production notification integration.
 
 ## Important decisions
 
 ### 1. Versioning for safe edits
 
-Reminder edits can race with already-claimed work. I used version-aware processing so stale work cannot deliver an older reminder version after the reminder has been edited.
+One issue I wanted to avoid was an old reminder being delivered after the user had already edited it.
 
-This protects the delivery boundary from outdated data.
+I therefore used reminder versions and check the version before delivery. This prevents stale work from delivering outdated reminder content.
 
-### 2. Stable idempotency keys
+### 2. Idempotency
 
-Retries and duplicate execution can cause the same logical reminder to be processed more than once.
+Retries and duplicate processing can potentially cause the same reminder to be delivered more than once.
 
-A stable delivery idempotency key is used so duplicate execution can be detected and suppressed. This provides exactly-once behavior at the logical delivery boundary rather than assuming that an external network can guarantee physical exactly-once delivery.
+I used a stable delivery idempotency key so the system can recognize duplicate execution and suppress the second logical delivery.
 
-### 3. Explicit failure classification
+This gives exactly-once behavior at the application's delivery boundary rather than assuming that every external network operation can provide physical exactly-once delivery.
 
-Temporary and permanent delivery failures are handled differently.
+### 3. Temporary vs permanent failures
 
-Temporary failures can schedule another attempt, while permanent failures move the reminder to a terminal failed state.
+Not every failure should be retried.
 
-This avoids both losing recoverable work and retrying failures that cannot succeed.
+Temporary failures can be retried, while permanent failures are moved to a final failed state. This prevents recoverable work from being lost while also avoiding unnecessary retries.
 
 ## Assumptions and limitations
 
-- The challenge uses a local/test delivery destination instead of a real external notification provider.
-- PostgreSQL is required for durable persistence.
-- The submitted retry policy is bounded and designed around the challenge requirements rather than a fully configurable production retry platform.
-- The system is designed to demonstrate reliable scheduling and delivery semantics rather than provide a complete user-facing notification product.
-- Production deployment, monitoring, distributed tracing, and operational alerting are outside the scope of the challenge.
-- The implementation does not claim absolute physical exactly-once delivery across arbitrary external network failures. Idempotency provides exactly-once logical delivery at the application's delivery boundary.
-- The project currently focuses on the required backend behavior and does not include a frontend UI.
+- PostgreSQL is required for persistent storage.
+- The project uses a local/test delivery destination rather than a real notification provider.
+- The retry policy is designed for the challenge and is not intended to be a complete production retry platform.
+- There is no frontend UI because the main focus of this problem is backend reliability.
+- Production monitoring, tracing, alerting, and deployment infrastructure are outside the scope of this submission.
+- The system does not claim absolute physical exactly-once delivery across arbitrary external network failures. Idempotency is used to provide exactly-once logical delivery at the application boundary.
+- The project is focused on the required challenge scenarios rather than being a complete commercial reminder product.
 
 ## Production and scale
 
-The submitted implementation currently focuses on correctness, durability, deterministic testing, and the required benchmark.
+The current implementation is focused mainly on correctness, durability, failure handling, and deterministic testing.
 
-For significantly larger production scale, I would first strengthen the processing architecture around the database-backed scheduler.
+If this needed to run at a much larger production scale, I would first improve the background processing architecture.
 
-Potential improvements would include:
+Some changes I would consider are:
 
-- A dedicated durable job queue or message broker for high-volume scheduling.
-- Multiple worker processes with stronger distributed coordination.
-- Database indexing and query optimization for large reminder volumes.
-- Connection pooling and database capacity planning.
-- More configurable retry/backoff policies.
-- Dead-letter handling for permanently problematic deliveries.
-- Metrics, structured logging, tracing, and operational dashboards.
-- Monitoring for scheduler lag, retry rates, failed deliveries, and worker health.
-- A real notification provider abstraction with provider-specific idempotency support.
-- Horizontal scaling and deployment automation.
+- Using a durable job queue/message broker for higher volumes.
+- Running multiple workers with stronger distributed coordination.
+- Adding proper database indexes and query optimization.
+- Improving connection pooling and database capacity planning.
+- Making retry and backoff policies more configurable.
+- Adding dead-letter handling for permanently problematic jobs.
+- Adding structured logs, metrics, tracing, and monitoring.
+- Tracking scheduler delays, retry rates, failed deliveries, and worker health.
+- Integrating real notification providers behind the existing delivery abstraction.
+- Adding deployment and scaling automation.
 
-These are proposed production improvements; they are not being claimed as part of the submitted implementation.
+These are future production improvements; they are not being claimed as part of the current implementation.
 
 ## AI usage
 
-I used ChatGPT as an AI development assistant during the project.
+I used ChatGPT as an AI development assistant while working on this project.
 
-It helped with:
+It helped me with:
 
-- Breaking the problem into implementation tasks.
-- Thinking through reliability and edge cases.
-- Reviewing architecture and state transitions.
-- Designing focused test scenarios.
-- Debugging implementation issues.
-- Improving documentation and submission material.
+- Breaking the problem into smaller implementation tasks.
+- Thinking through edge cases.
+- Reviewing the architecture and state transitions.
+- Suggesting test scenarios.
+- Debugging issues during development.
+- Improving the documentation and submission.
 
-I reviewed the suggestions, adapted the implementation to the project requirements, and verified the resulting behavior myself.
+I reviewed the suggestions myself and made the final implementation decisions.
 
-The submitted code was tested using the automated test suite and the required 20-item verification benchmark. I remain responsible for understanding and explaining the implementation and its engineering decisions.
+I also verified the implementation using the automated tests and the required 20-item benchmark. I am responsible for the submitted code and can explain the architecture, state transitions, retry handling, recovery, idempotency, timezone handling, and testing decisions.
 
 ## Credibility note
 
 ### QuillStack
 
-**Problem solved:**
-QuillStack is a full-stack note-taking application designed to provide users with authentication and CRUD-based note management.
+**Problem it solved:**
+QuillStack is a full-stack note-taking application where users can create, update, delete, and manage their notes after authentication.
 
 **My contribution:**
-I worked on the frontend and backend, including React UI development, Node.js/Express APIs, authentication, CRUD operations, database integration, and connecting the frontend with the backend.
+I worked on both the frontend and backend. I built the React interface, Node.js/Express APIs, authentication flow, CRUD functionality, database integration, and frontend-backend communication.
 
 **Scale / operational complexity:**
-It is a personal full-stack project rather than a large production system. Its main complexity was coordinating authentication, API behavior, persistent data, frontend state, and deployment across separate frontend and backend environments.
+This was a personal project rather than a large production system. The main complexity was managing authentication, persistent data, REST APIs, frontend state, and deployment between separate frontend and backend applications.
 
-**Difficult engineering decision:**
-One important decision was separating the frontend and backend responsibilities and exposing the required functionality through REST APIs. This made the application easier to develop, test, deploy, and extend.
+**One difficult engineering decision:**
+I separated the frontend and backend responsibilities and exposed the application functionality through REST APIs. This made the project easier to test, deploy, and extend.
 
 **Evidence:**
 GitHub: https://github.com/Gurpreet1109
 
-The Caygnus project repository is also publicly available:
+The current Caygnus submission is also publicly available:
 
 https://github.com/Gurpreet1109/caygnus-durable-reminders
