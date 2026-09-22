@@ -2,11 +2,12 @@
 
 ## Candidate
 
-- **Name:** Gurpreet Singh
-- **Email:** [gurpreetchahal1009@gmail.com](mailto:gurpreetchahal1009@gmail.com)
-- **GitHub:** https://github.com/Gurpreet1109
-- **Selected problem:** Problem 3 — Durable Reminders
-- **Demo video:** TODO — 3–5 minute demo video
+Your name: Gurpreet Singh
+Email: gurpreetchahal1009@gmail.com
+Selected problem: Problem 3 — Durable Reminders
+GitHub repository: https://github.com/Gurpreet1109/caygnus-durable-reminders
+Demo video: https://drive.google.com/file/d/1NPE2LL5axrOdoNtBfQfXIbgqx3C6txkx/view?usp=drive_link
+Resume: https://drive.google.com/file/d/1ej0WRS4DHLV2hJ4_ZC17tRtgZfv6jgzl/view?usp=drive_link
 
 ## Run the project
 
